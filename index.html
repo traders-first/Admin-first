@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>First Traders - Administration</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        body { margin: 0; background-color: #f4f6f9; color: #333; padding-bottom: 5px; }
+
+        .header { background: #00A651; color: #fff; padding: 20px; text-align: center; font-size: 20px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .container { padding: 15px; max-width: 800px; margin: 0 auto; display: none; }
+
+        /* Stats Blocks */
+        .stats-grid { display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 25px; }
+        .stat-card { background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #eef0f5; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+        .stat-card i { font-size: 30px; color: #00A651; margin-bottom: 8px; }
+        .stat-card h2 { margin: 0; font-size: 26px; color: #111; }
+        .stat-card p { margin: 5px 0 0; color: #777; font-size: 13px; }
+
+        /* Sections des demandes */
+        .section-title { font-size: 15px; font-weight: bold; margin: 25px 0 15px; text-transform: uppercase; color: #111; border-left: 4px solid #00A651; padding-left: 10px; }
+        
+        /* Cartes de transaction */
+        .list-container { display: flex; flex-direction: column; gap: 12px; }
+        .tx-card { background: #fff; border-radius: 12px; padding: 15px; border: 1px solid #eef0f5; box-shadow: 0 4px 8px rgba(0,0,0,0.02); }
+        .tx-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f2f4f8; padding-bottom: 8px; margin-bottom: 10px; }
+        .tx-user { font-weight: bold; font-size: 14px; color: #00A651; }
+        .tx-date { font-size: 11px; color: #999; }
+        
+        .tx-body { font-size: 13px; color: #444; line-height: 1.6; }
+        .tx-body span { font-weight: bold; color: #111; }
+        
+        /* Boutons d'action */
+        .tx-actions { display: flex; gap: 10px; margin-top: 15px; }
+        .btn-act { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; color: #fff; text-align: center; }
+        .btn-approve { background: #27ae60; }
+        .btn-approve:hover { background: #219653; }
+        .btn-reject { background: #e74c3c; }
+        .btn-reject:hover { background: #c0392b; }
+
+        /* Message si vide */
+        .empty-msg { text-align: center; padding: 30px; color: #aaa; background: #fff; border-radius: 12px; font-size: 13px; border: 1px dashed #ccc; }
+
+        /* Fenêtre Login de Sécurité */
+        .login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f4f6f9; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .login-box { background: #fff; padding: 30px 25px; border-radius: 15px; width: 100%; max-width: 360px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
+        .login-box i { font-size: 45px; color: #00A651; margin-bottom: 15px; }
+        .login-box h3 { margin: 0 0 20px; font-size: 18px; }
+        .login-box input { width: 100%; padding: 12px; border: 1.5px solid #ddd; border-radius: 8px; outline: none; margin-bottom: 15px; text-align: center; font-size: 16px; }
+        .login-box button { background: #00A651; color: #fff; width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-box">
+            <i class="fas fa-user-shield"></i>
+            <h3>Espace Administrateur</h3>
+            <input type="password" id="adminPassword" placeholder="Entrez le code secret">
+            <button onclick="verifyAdminCode()">Se connecter</button>
+        </div>
+    </div>
+
+    <div class="header">FIRST TRADERS - DASHBOARD ADMIN</div>
+
+    <div class="container" id="adminContent">
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <i class="fas fa-users"></i>
+                <h2 id="statUsers">0</h2>
+                <p>Membres Total Inscrits</p>
+            </div>
+        </div>
+
+        <div class="section-title">1. Recharges en attente de vérification</div>
+        <div id="rechargesList" class="list-container">
+            <div class="empty-msg">Aucune demande de recharge en attente.</div>
+        </div>
+
+        <div class="section-title">2. Demandes de retraits à traiter</div>
+        <div id="retraitsList" class="list-container">
+            <div class="empty-msg">Aucune demande de retrait en attente.</div>
+        </div>
+
+    </div>
+
+    <script>
+        // Ta base de données Firebase réelle
+        const dbUrl = "https://canal-e4274-default-rtdb.firebaseio.com";
+        
+        // Code secret d'accès administrateur
+        const SECRET_CODE = "243000";
+
+        function verifyAdminCode() {
+            const input = document.getElementById('adminPassword').value;
+            if (input === SECRET_CODE) {
+                document.getElementById('loginOverlay').style.display = 'none';
+                document.getElementById('adminContent').style.display = 'block';
+                loadAdminData();
+            } else {
+                alert("Code secret incorrect ! Accès refusé.");
+            }
+        }
+
+        async function loadAdminData() {
+            try {
+                // 1. Charger et compter les utilisateurs
+                const usersRes = await fetch(`${dbUrl}/users.json`);
+                const users = await usersRes.json();
+                let userCount = users ? Object.keys(users).length : 0;
+                document.getElementById('statUsers').innerText = userCount;
+
+                // 2. Charger les recharges de la table globale
+                const rechRes = await fetch(`${dbUrl}/recharges.json`);
+                const recharges = await rechRes.json();
+                renderRecharges(recharges);
+
+                // 3. Charger les retraits de la table globale
+                const retRes = await fetch(`${dbUrl}/retraits.json`);
+                const retraits = await retRes.json();
+                renderRetraits(retraits);
+
+            } catch (error) {
+                console.error("Erreur de récupération globale admin :", error);
+            }
+        }
+
+        // --- AFFICHAGE ET GESTION DES RECHARGES ---
+        function renderRecharges(recharges) {
+            const container = document.getElementById('rechargesList');
+            container.innerHTML = "";
+
+            if (!recharges || Object.keys(recharges).length === 0) {
+                container.innerHTML = `<div class="empty-msg">Aucune demande de recharge en attente.</div>`;
+                return;
+            }
+
+            let count = 0;
+            for (let rId in recharges) {
+                const item = recharges[rId];
+                if (item.status !== "en_attente") continue;
+                count++;
+
+                const card = document.createElement('div');
+                card.className = 'tx-card';
+                card.innerHTML = `
+                    <div class="tx-header">
+                        <span class="tx-user"><i class="fas fa-user"></i> Compte : ${item.userAccount}</span>
+                        <span class="tx-date">${item.date}</span>
+                    </div>
+                    <div class="tx-body">
+                        <div>Montant demandé : <span style="color:#00A651;">${(item.amount || 0).toLocaleString()} FC</span></div>
+                        <div>Réseau choisi : <span>${item.network || "Non spécifié"}</span></div>
+                        <div>Numéro Expéditeur : <span>${item.senderPhone || "Non spécifié"}</span></div>
+                        <div style="background:#f4f6f9; padding:5px 10px; border-radius:5px; margin-top:5px; word-break:break-all;">
+                            ID de Transaction (TID) : <span style="color:#e74c3c;">${item.transactionID || "Aucun"}</span>
+                        </div>
+                    </div>
+                    <div class="tx-actions">
+                        <button class="btn-act btn-approve" onclick="approveRecharge('${rId}', '${item.userAccount}', ${item.amount})">Valider le dépôt</button>
+                        <button class="btn-act btn-reject" onclick="changeStatus('recharges', '${rId}', 'refuse')">Rejeter</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+            if (count === 0) {
+                container.innerHTML = `<div class="empty-msg">Aucune demande de recharge en attente.</div>`;
+            }
+        }
+
+        async function approveRecharge(rId, phone, amount) {
+            if (!confirm(`Voulez-vous vraiment créditer ${amount.toLocaleString()} FC sur le compte de ${phone} ?`)) return;
+
+            try {
+                // Lecture directe du solde actuel de l'utilisateur concerné
+                const userRes = await fetch(`${dbUrl}/users/${phone}.json`);
+                const user = await userRes.json();
+
+                if (user) {
+                    const currentBal = user.balance || 0;
+                    const newBalance = currentBal + amount;
+                    
+                    // 1. Créditer le compte
+                    await fetch(`${dbUrl}/users/${phone}.json`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ balance: newBalance })
+                    });
+
+                    // 2. Changer le statut de la recharge en "valide"
+                    await fetch(`${dbUrl}/recharges/${rId}.json`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: "valide" })
+                    });
+
+                    alert("Compte crédité et recharge validée avec succès !");
+                    loadAdminData();
+                } else {
+                    alert("Erreur : Utilisateur introuvable dans le nœud /users.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Erreur lors du traitement de la recharge.");
+            }
+        }
+
+        // --- AFFICHAGE ET GESTION DES RETRAITS ---
+        function renderRetraits(retraits) {
+            const container = document.getElementById('retraitsList');
+            container.innerHTML = "";
+
+            if (!retraits || Object.keys(retraits).length === 0) {
+                container.innerHTML = `<div class="empty-msg">Aucune demande de retrait en attente.</div>`;
+                return;
+            }
+
+            let count = 0;
+            for (let rId in retraits) {
+                const item = retraits[rId];
+                if (item.status !== "en_attente") continue;
+                count++;
+
+                const card = document.createElement('div');
+                card.className = 'tx-card';
+                card.innerHTML = `
+                    <div class="tx-header">
+                        <span class="tx-user" style="color:#e74c3c;"><i class="fas fa-arrow-down"></i> Compte : ${item.userAccount}</span>
+                        <span class="tx-date">${item.date}</span>
+                    </div>
+                    <div class="tx-body">
+                        <div>Montant Brut Déduit : <span>${(item.amount || 0).toLocaleString()} FC</span></div>
+                        <div style="font-size:15px; margin:5px 0;">
+                            <strong style="color:#27ae60;">Net à envoyer (20% déduits) : ${(item.netAmount || (item.amount * 0.8)).toLocaleString()} FC</strong>
+                        </div>
+                        <div>Numéro de Réception Mobile Money : <span style="font-size:14px; background:#fff8e1; padding:2px 5px; border:1px solid #ffe082;">${item.receiverPhone || item.receiver}</span></div>
+                    </div>
+                    <div class="tx-actions">
+                        <button class="btn-act btn-approve" style="background:#00A651;" onclick="changeStatus('retraits', '${rId}', 'paye')">Confirmer le paiement envoyé</button>
+                        <button class="btn-act btn-reject" onclick="rejectWithdraw('${rId}', '${item.userAccount}', ${item.amount})">Rejeter & Rendre les fonds</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+            if (count === 0) {
+                container.innerHTML = `<div class="empty-msg">Aucune demande de retrait en attente.</div>`;
+            }
+        }
+
+        async function rejectWithdraw(rId, phone, amount) {
+            if (!confirm(`Rejeter ce retrait va restituer les ${amount.toLocaleString()} FC sur le solde de l'utilisateur. Confirmer ?`)) return;
+            try {
+                // Lecture en direct du solde de l'utilisateur
+                const userRes = await fetch(`${dbUrl}/users/${phone}.json`);
+                const user = await userRes.json();
+
+                if (user) {
+                    const currentBal = user.balance || 0;
+                    
+                    // 1. Restituer les fonds
+                    await fetch(`${dbUrl}/users/${phone}.json`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ balance: currentBal + amount })
+                    });
+                    
+                    // 2. Marquer le statut comme refusé
+                    await fetch(`${dbUrl}/retraits/${rId}.json`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ status: "refuse" })
+                    });
+
+                    alert("Retrait rejeté et fonds retournés à l'utilisateur.");
+                    loadAdminData();
+                } else {
+                    alert("Erreur : Utilisateur introuvable.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Erreur lors du rejet du retrait.");
+            }
+        }
+
+        // Fonction générique pour changer le statut d'une transaction (Valider recharge / Confirmer paiement retrait)
+        async function changeStatus(table, id, newStatus) {
+            const actionMessage = newStatus === 'paye' ? "marquer ce retrait comme payé" : "rejeter cette demande";
+            if (!confirm(`Voulez-vous vraiment ${actionMessage} ?`)) return;
+            
+            try {
+                await fetch(`${dbUrl}/${table}/${id}.json`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ status: newStatus })
+                });
+                alert("Mise à jour effectuée avec succès.");
+                loadAdminData();
+            } catch (e) {
+                alert("Erreur réseau lors du changement de statut.");
+            }
+        }
+    </script>
+</body>
+</html>
