@@ -88,10 +88,8 @@
     </div>
 
     <script>
-        // Ta base de données Firebase réelle
+        // URL unifiée basée sur ta capture d'écran
         const dbUrl = "https://canal-e4274-default-rtdb.firebaseio.com";
-        
-        // Code secret d'accès administrateur
         const SECRET_CODE = "243000";
 
         function verifyAdminCode() {
@@ -113,13 +111,13 @@
                 let userCount = users ? Object.keys(users).length : 0;
                 document.getElementById('statUsers').innerText = userCount;
 
-                // 2. Charger les recharges de la table globale
-                const rechRes = await fetch(`${dbUrl}/recharges.json`);
+                // 2. Charger depuis "recharges_en_attente" (Correction d'alignement Firebase)
+                const rechRes = await fetch(`${dbUrl}/recharges_en_attente.json`);
                 const recharges = await rechRes.json();
                 renderRecharges(recharges);
 
-                // 3. Charger les retraits de la table globale
-                const retRes = await fetch(`${dbUrl}/retraits.json`);
+                // 3. Charger depuis "retraits_demandes"
+                const retRes = await fetch(`${dbUrl}/retraits_demandes.json`);
                 const retraits = await retRes.json();
                 renderRetraits(retraits);
 
@@ -141,30 +139,29 @@
             let count = 0;
             for (let rId in recharges) {
                 const item = recharges[rId];
-                if (item.status !== "en_attente") continue;
+                if (item.status !== "en_attente" && item.status !== undefined) continue;
                 count++;
 
-                const card = document.createElement('div');
-                card.className = 'tx-card';
-                card.innerHTML = `
-                    <div class="tx-header">
-                        <span class="tx-user"><i class="fas fa-user"></i> Compte : ${item.userAccount}</span>
-                        <span class="tx-date">${item.date}</span>
-                    </div>
-                    <div class="tx-body">
-                        <div>Montant demandé : <span style="color:#00A651;">${(item.amount || 0).toLocaleString()} FC</span></div>
-                        <div>Réseau choisi : <span>${item.network || "Non spécifié"}</span></div>
-                        <div>Numéro Expéditeur : <span>${item.senderPhone || "Non spécifié"}</span></div>
-                        <div style="background:#f4f6f9; padding:5px 10px; border-radius:5px; margin-top:5px; word-break:break-all;">
-                            ID de Transaction (TID) : <span style="color:#e74c3c;">${item.transactionID || "Aucun"}</span>
+                container.innerHTML += `
+                    <div class="tx-card">
+                        <div class="tx-header">
+                            <span class="tx-user"><i class="fas fa-user"></i> Compte : ${item.userAccount || item.user}</span>
+                            <span class="tx-date">${item.date || ""}</span>
+                        </div>
+                        <div class="tx-body">
+                            <div>Montant demandé : <span style="color:#00A651;">${(item.amount || 0).toLocaleString()} FC</span></div>
+                            <div>Réseau choisi : <span>${item.network || "Non spécifié"}</span></div>
+                            <div>Numéro Expéditeur : <span>${item.senderPhone || "Non spécifié"}</span></div>
+                            <div style="background:#f4f6f9; padding:5px 10px; border-radius:5px; margin-top:5px; word-break:break-all;">
+                                ID de Transaction (TID) : <span style="color:#e74c3c;">${item.transactionID || "Aucun"}</span>
+                            </div>
+                        </div>
+                        <div class="tx-actions">
+                            <button class="btn-act btn-approve" onclick="approveRecharge('${rId}', '${item.userAccount || item.user}', ${item.amount})">Valider le dépôt</button>
+                            <button class="btn-act btn-reject" onclick="changeStatus('recharges_en_attente', '${rId}', 'refuse')">Rejeter</button>
                         </div>
                     </div>
-                    <div class="tx-actions">
-                        <button class="btn-act btn-approve" onclick="approveRecharge('${rId}', '${item.userAccount}', ${item.amount})">Valider le dépôt</button>
-                        <button class="btn-act btn-reject" onclick="changeStatus('recharges', '${rId}', 'refuse')">Rejeter</button>
-                    </div>
                 `;
-                container.appendChild(card);
             }
             if (count === 0) {
                 container.innerHTML = `<div class="empty-msg">Aucune demande de recharge en attente.</div>`;
@@ -175,34 +172,44 @@
             if (!confirm(`Voulez-vous vraiment créditer ${amount.toLocaleString()} FC sur le compte de ${phone} ?`)) return;
 
             try {
-                // Lecture directe du solde actuel de l'utilisateur concerné
-                const userRes = await fetch(`${dbUrl}/users/${phone}.json`);
-                const user = await userRes.json();
+                const usersRes = await fetch(`${dbUrl}/users.json`);
+                const users = await usersRes.json();
+                
+                let userKey = null;
+                let currentBal = 0;
 
-                if (user) {
-                    const currentBal = user.balance || 0;
+                // Recherche de la clé Firebase unique associée au numéro de téléphone
+                for (let key in users) {
+                    if (users[key].phone === phone || key === phone) {
+                        userKey = key;
+                        currentBal = users[key].balance || 0;
+                        break;
+                    }
+                }
+
+                if (userKey) {
                     const newBalance = currentBal + amount;
                     
-                    // 1. Créditer le compte
-                    await fetch(`${dbUrl}/users/${phone}.json`, {
+                    // 1. Créditer le compte de l'utilisateur
+                    await fetch(`${dbUrl}/users/${userKey}.json`, {
                         method: 'PATCH',
                         body: JSON.stringify({ balance: newBalance })
                     });
 
-                    // 2. Changer le statut de la recharge en "valide"
-                    await fetch(`${dbUrl}/recharges/${rId}.json`, {
+                    // 2. Mettre à jour le statut du ticket dans "recharges_en_attente"
+                    await fetch(`${dbUrl}/recharges_en_attente/${rId}.json`, {
                         method: 'PATCH',
                         body: JSON.stringify({ status: "valide" })
                     });
 
-                    alert("Compte crédité et recharge validée avec succès !");
+                    alert("Compte crédité et recharge validée !");
                     loadAdminData();
                 } else {
-                    alert("Erreur : Utilisateur introuvable dans le nœud /users.");
+                    alert("Erreur : Utilisateur introuvable dans la liste /users.");
                 }
             } catch (e) {
                 console.error(e);
-                alert("Erreur lors du traitement de la recharge.");
+                alert("Erreur lors du traitement.");
             }
         }
 
@@ -219,29 +226,28 @@
             let count = 0;
             for (let rId in retraits) {
                 const item = retraits[rId];
-                if (item.status !== "en_attente") continue;
+                if (item.status !== "en_attente" && item.status !== "En attente") continue;
                 count++;
 
-                const card = document.createElement('div');
-                card.className = 'tx-card';
-                card.innerHTML = `
-                    <div class="tx-header">
-                        <span class="tx-user" style="color:#e74c3c;"><i class="fas fa-arrow-down"></i> Compte : ${item.userAccount}</span>
-                        <span class="tx-date">${item.date}</span>
-                    </div>
-                    <div class="tx-body">
-                        <div>Montant Brut Déduit : <span>${(item.amount || 0).toLocaleString()} FC</span></div>
-                        <div style="font-size:15px; margin:5px 0;">
-                            <strong style="color:#27ae60;">Net à envoyer (20% déduits) : ${(item.netAmount || (item.amount * 0.8)).toLocaleString()} FC</strong>
+                container.innerHTML += `
+                    <div class="tx-card">
+                        <div class="tx-header">
+                            <span class="tx-user" style="color:#e74c3c;"><i class="fas fa-arrow-down"></i> Compte : ${item.userAccount || item.user}</span>
+                            <span class="tx-date">${item.date || ""}</span>
                         </div>
-                        <div>Numéro de Réception Mobile Money : <span style="font-size:14px; background:#fff8e1; padding:2px 5px; border:1px solid #ffe082;">${item.receiverPhone || item.receiver}</span></div>
-                    </div>
-                    <div class="tx-actions">
-                        <button class="btn-act btn-approve" style="background:#00A651;" onclick="changeStatus('retraits', '${rId}', 'paye')">Confirmer le paiement envoyé</button>
-                        <button class="btn-act btn-reject" onclick="rejectWithdraw('${rId}', '${item.userAccount}', ${item.amount})">Rejeter & Rendre les fonds</button>
+                        <div class="tx-body">
+                            <div>Montant Brut Déduit : <span>${(item.amount || 0).toLocaleString()} FC</span></div>
+                            <div style="font-size:15px; margin:5px 0;">
+                                <strong style="color:#27ae60;">Net à envoyer (20% déduits) : ${(item.netAmount || (item.amount * 0.8)).toLocaleString()} FC</strong>
+                            </div>
+                            <div>Numéro de Réception Mobile Money : <span style="font-size:14px; background:#fff8e1; padding:2px 5px; border:1px solid #ffe082;">${item.receiverPhone || item.receiver || "Non spécifié"}</span></div>
+                        </div>
+                        <div class="tx-actions">
+                            <button class="btn-act btn-approve" style="background:#00A651;" onclick="changeStatus('retraits_demandes', '${rId}', 'paye')">Confirmer le paiement envoyé</button>
+                            <button class="btn-act btn-reject" onclick="rejectWithdraw('${rId}', '${item.userAccount || item.user}', ${item.amount})">Rejeter & Rendre les fonds</button>
+                        </div>
                     </div>
                 `;
-                container.appendChild(card);
             }
             if (count === 0) {
                 container.innerHTML = `<div class="empty-msg">Aucune demande de retrait en attente.</div>`;
@@ -251,21 +257,29 @@
         async function rejectWithdraw(rId, phone, amount) {
             if (!confirm(`Rejeter ce retrait va restituer les ${amount.toLocaleString()} FC sur le solde de l'utilisateur. Confirmer ?`)) return;
             try {
-                // Lecture en direct du solde de l'utilisateur
-                const userRes = await fetch(`${dbUrl}/users/${phone}.json`);
-                const user = await userRes.json();
+                const usersRes = await fetch(`${dbUrl}/users.json`);
+                const users = await usersRes.json();
+                
+                let userKey = null;
+                let currentBal = 0;
 
-                if (user) {
-                    const currentBal = user.balance || 0;
-                    
-                    // 1. Restituer les fonds
-                    await fetch(`${dbUrl}/users/${phone}.json`, {
+                for (let key in users) {
+                    if (users[key].phone === phone || key === phone) {
+                        userKey = key;
+                        currentBal = users[key].balance || 0;
+                        break;
+                    }
+                }
+
+                if (userKey) {
+                    // 1. Restituer l'argent au client
+                    await fetch(`${dbUrl}/users/${userKey}.json`, {
                         method: 'PATCH',
                         body: JSON.stringify({ balance: currentBal + amount })
                     });
                     
-                    // 2. Marquer le statut comme refusé
-                    await fetch(`${dbUrl}/retraits/${rId}.json`, {
+                    // 2. Modifier le statut de la demande de retrait
+                    await fetch(`${dbUrl}/retraits_demandes/${rId}.json`, {
                         method: 'PATCH',
                         body: JSON.stringify({ status: "refuse" })
                     });
@@ -273,28 +287,27 @@
                     alert("Retrait rejeté et fonds retournés à l'utilisateur.");
                     loadAdminData();
                 } else {
-                    alert("Erreur : Utilisateur introuvable.");
+                    alert("Erreur : Impossible de retrouver l'utilisateur.");
                 }
             } catch (e) {
                 console.error(e);
-                alert("Erreur lors du rejet du retrait.");
+                alert("Erreur lors du traitement.");
             }
         }
 
-        // Fonction générique pour changer le statut d'une transaction (Valider recharge / Confirmer paiement retrait)
         async function changeStatus(table, id, newStatus) {
-            const actionMessage = newStatus === 'paye' ? "marquer ce retrait comme payé" : "rejeter cette demande";
-            if (!confirm(`Voulez-vous vraiment ${actionMessage} ?`)) return;
+            const msg = newStatus === 'paye' ? "marquer ce retrait comme payé" : "rejeter cette transaction";
+            if (!confirm(`Voulez-vous vraiment ${msg} ?`)) return;
             
             try {
                 await fetch(`${dbUrl}/${table}/${id}.json`, {
                     method: 'PATCH',
                     body: JSON.stringify({ status: newStatus })
                 });
-                alert("Mise à jour effectuée avec succès.");
+                alert("Opération réussie !");
                 loadAdminData();
             } catch (e) {
-                alert("Erreur réseau lors du changement de statut.");
+                alert("Erreur réseau.");
             }
         }
     </script>
